@@ -2,7 +2,6 @@ package mill.main
 
 import java.util.concurrent.LinkedBlockingQueue
 
-import ammonite.ops.Path
 import mill.T
 import mill.define.{NamedTask, Task}
 import mill.eval.{Evaluator, PathRef, Result}
@@ -10,14 +9,14 @@ import mill.util.{Ctx, PrintLogger, Watched}
 import pprint.{Renderer, Truncated}
 import upickle.Js
 object MainModule{
-  def resolveTasks[T](evaluator: Evaluator[Any], targets: Seq[String], multiSelect: Boolean)
+  def resolveTasks[T](evaluator: Evaluator, targets: Seq[String], multiSelect: Boolean)
                      (f: List[NamedTask[Any]] => T) = {
     RunScript.resolveTasks(mill.main.ResolveTasks, evaluator, targets, multiSelect) match{
       case Left(err) => Result.Failure(err)
       case Right(tasks) => Result.Success(f(tasks))
     }
   }
-  def evaluateTasks[T](evaluator: Evaluator[Any], targets: Seq[String], multiSelect: Boolean)
+  def evaluateTasks[T](evaluator: Evaluator, targets: Seq[String], multiSelect: Boolean)
                       (f: Seq[(Any, Option[Js.Value])] => T) = {
     RunScript.evaluateTasks(evaluator, targets, multiSelect) match{
       case Left(err) => Result.Failure(err)
@@ -45,7 +44,7 @@ trait MainModule extends mill.Module{
   /**
     * Resolves a mill query string and prints out the tasks it resolves to.
     */
-  def resolve(evaluator: Evaluator[Any], targets: String*) = mill.T.command{
+  def resolve(evaluator: Evaluator, targets: String*) = mill.T.command{
     val resolved = RunScript.resolveTasks(
       mill.main.ResolveMetadata, evaluator, targets, multiSelect = true
     )
@@ -64,7 +63,7 @@ trait MainModule extends mill.Module{
     * Given a set of tasks, prints out the execution plan of what tasks will be
     * executed in what order, without actually executing them.
     */
-  def plan(evaluator: Evaluator[Any], targets: String*) = mill.T.command{
+  def plan(evaluator: Evaluator, targets: String*) = mill.T.command{
     plan0(evaluator, targets) match{
       case Right(success) => {
         val renderedTasks = success.map{ _.segments.render}
@@ -75,7 +74,7 @@ trait MainModule extends mill.Module{
     }
   }
 
-  private def plan0(evaluator: Evaluator[Any], targets: Seq[String]) = {
+  private def plan0(evaluator: Evaluator, targets: Seq[String]) = {
     RunScript.resolveTasks(
       mill.main.ResolveTasks, evaluator, targets, multiSelect = true
     ) match {
@@ -92,7 +91,7 @@ trait MainModule extends mill.Module{
     * If there are multiple dependency paths between `src` and `dest`, the path
     * chosen is arbitrary.
     */
-  def path(evaluator: Evaluator[Any], src: String, dest: String) = mill.T.command{
+  def path(evaluator: Evaluator, src: String, dest: String) = mill.T.command{
     val resolved = RunScript.resolveTasks(
       mill.main.ResolveTasks, evaluator, List(src, dest), multiSelect = true
     )
@@ -133,8 +132,9 @@ trait MainModule extends mill.Module{
   /**
     * Displays metadata about the given task without actually running it.
     */
-  def inspect(evaluator: Evaluator[Any], targets: String*) = mill.T.command{
+  def inspect(evaluator: Evaluator, targets: String*) = mill.T.command{
     MainModule.resolveTasks(evaluator, targets, multiSelect = true){ tasks =>
+      val output = new StringBuilder
       for{
         task <- tasks
         tree = ReplApplyHandler.pprintTask(task, evaluator)
@@ -149,8 +149,10 @@ trait MainModule extends mill.Module{
         val truncated = new Truncated(rendered, defaults.defaultWidth, defaults.defaultHeight)
         str <- truncated ++ Iterator("\n")
       } {
-        print(str)
+        output.append(str)
       }
+      println(output)
+      output.toString
     }
   }
 
@@ -159,7 +161,7 @@ trait MainModule extends mill.Module{
     *
     *
     */
-  def all(evaluator: Evaluator[Any], targets: String*) = mill.T.command{
+  def all(evaluator: Evaluator, targets: String*) = mill.T.command{
     MainModule.evaluateTasks(evaluator, targets, multiSelect = true) {res =>
       res.flatMap(_._2)
     }
@@ -169,13 +171,13 @@ trait MainModule extends mill.Module{
     * Runs a given task and prints the JSON result to stdout. This is useful
     * to integrate Mill into external scripts and tooling.
     */
-  def show(evaluator: Evaluator[Any], targets: String*) = mill.T.command{
+  def show(evaluator: Evaluator, targets: String*) = mill.T.command{
     MainModule.evaluateTasks(
       evaluator.copy(
         // When using `show`, redirect all stdout of the evaluated tasks so the
         // printed JSON is the only thing printed to stdout.
         log = evaluator.log match{
-          case PrintLogger(c1, d, c2, o, i, e, in) => PrintLogger(c1, d, c2, e, i, e, in)
+          case PrintLogger(c1, d, c2, o, i, e, in, de) => PrintLogger(c1, d, c2, e, i, e, in, de)
           case l => l
         }
       ),
@@ -192,12 +194,12 @@ trait MainModule extends mill.Module{
     * Deletes the given targets from the out directory. Providing no targets
     * will clean everything.
     */
-  def clean(evaluator: Evaluator[Any], targets: String*) = mill.T.command {
+  def clean(evaluator: Evaluator, targets: String*) = mill.T.command {
     val rootDir = ammonite.ops.pwd / OutDir
 
     val KeepPattern = "(mill-.+)".r.anchored
 
-    def keepPath(path: Path) = path.segments.lastOption match {
+    def keepPath(path: os.Path) = path.segments.toSeq.lastOption match {
       case Some(KeepPattern(_)) => true
       case _ => false
     }
@@ -217,16 +219,23 @@ trait MainModule extends mill.Module{
       case Left(err) =>
         Result.Failure(err)
       case Right(paths) =>
-        paths.foreach(ammonite.ops.rm)
+        paths.foreach(os.remove.all)
         Result.Success(())
     }
   }
 
-  def visualize(evaluator: Evaluator[Any], targets: String*) = mill.T.command{
+
+  /**
+    * Renders the dependencies between the given tasks as a SVG for you to look at
+    */
+  def visualize(evaluator: Evaluator, targets: String*) = mill.T.command{
     visualize0(evaluator, targets, T.ctx(), mill.main.VisualizeModule.worker())
   }
 
-  def visualizePlan(evaluator: Evaluator[Any], targets: String*) = mill.T.command{
+  /**
+    * Renders the dependencies between the given tasks, and all their dependencies, as a SVG
+    */
+  def visualizePlan(evaluator: Evaluator, targets: String*) = mill.T.command{
     plan0(evaluator, targets) match {
       case Left(err) => Result.Failure(err)
       case Right(planResults) => visualize0(
@@ -235,10 +244,10 @@ trait MainModule extends mill.Module{
     }
   }
 
-  private type VizWorker = (LinkedBlockingQueue[(scala.Seq[_], scala.Seq[_], Path)],
+  private type VizWorker = (LinkedBlockingQueue[(scala.Seq[_], scala.Seq[_], os.Path)],
     LinkedBlockingQueue[Result[scala.Seq[PathRef]]])
 
-  private def visualize0(evaluator: Evaluator[Any], targets: Seq[String], ctx: Ctx, vizWorker: VizWorker,
+  private def visualize0(evaluator: Evaluator, targets: Seq[String], ctx: Ctx, vizWorker: VizWorker,
                          planTasks: Option[List[NamedTask[_]]] = None) = {
     def callVisualizeModule(rs: List[NamedTask[Any]], allRs: List[NamedTask[Any]]) = {
       val (in, out) = vizWorker
@@ -258,5 +267,4 @@ trait MainModule extends mill.Module{
       }
     }
   }
-
 }

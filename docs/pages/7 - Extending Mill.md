@@ -166,7 +166,7 @@ example, here is the `mill.scalalib.GenIdea/idea` command which uses this to
 traverse the module-tree and generate an Intellij project config for your build.
 
 ```scala
-def idea(ev: Evaluator[Any]) = T.command {
+def idea(ev: Evaluator) = T.command {
   mill.scalalib.GenIdea(
     implicitly,
     ev.rootModule,
@@ -176,7 +176,6 @@ def idea(ev: Evaluator[Any]) = T.command {
 ```
 
 Many built-in tools are implemented as custom evaluator commands:
-[all](intro.html#all), [inspect](intro.html#inspect),
-[resolve](intro.html#resolve), [show](intro.html#show). If you want a way to run Mill
-commands and programmatically manipulate the tasks and outputs, you do so with
-your own evaluator command.
+[all](http://www.lihaoyi.com/mill/#all), [inspect](http://www.lihaoyi.com/mill/#inspect),
+[resolve](http://www.lihaoyi.com/mill/#resolve), [show](http://www.lihaoyi.com/mill/#show).
+If you want a way to run Mill commands and programmatically manipulate the tasks and outputs, you do so with your own evaluator command.

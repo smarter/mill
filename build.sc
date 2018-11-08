@@ -33,10 +33,11 @@ trait MillModule extends MillPublishModule with ScalaModule{ outer =>
   def compileIvyDeps = Agg(ivy"com.lihaoyi::acyclic:0.1.7")
   def scalacOptions = Seq("-P:acyclic:force")
   def scalacPluginIvyDeps = Agg(ivy"com.lihaoyi::acyclic:0.1.7")
-
   def repositories = super.repositories ++ Seq(
     MavenRepository("https://oss.sonatype.org/content/repositories/releases")
   )
+  def scalacPluginClasspath =
+    super.scalacPluginClasspath() ++ Seq(main.moduledefs.jar())
 
   def testArgs = T{ Seq.empty[String] }
 
@@ -51,37 +52,11 @@ trait MillModule extends MillPublishModule with ScalaModule{ outer =>
       else Seq(outer, main.test)
     def ivyDeps = Agg(ivy"com.lihaoyi::utest:0.6.4")
     def testFrameworks = Seq("mill.UTestFramework")
-    def scalacPluginClasspath = super.scalacPluginClasspath() ++ Seq(core.moduledefs.jar())
+    def scalacPluginClasspath =
+      super.scalacPluginClasspath() ++ Seq(main.moduledefs.jar())
   }
 }
 
-object core extends MillModule {
-  def moduleDeps = Seq(moduledefs)
-
-  def compileIvyDeps = Agg(
-    ivy"org.scala-lang:scala-reflect:${scalaVersion()}"
-  )
-
-  def ivyDeps = Agg(
-    ivy"com.lihaoyi:::ammonite:1.1.2-6-27842d9",
-    // Necessary so we can share the JNA classes throughout the build process
-    ivy"net.java.dev.jna:jna:4.5.0",
-    ivy"net.java.dev.jna:jna-platform:4.5.0"
-  )
-
-  def generatedSources = T {
-    Seq(PathRef(shared.generateCoreSources(T.ctx().dest)))
-  }
-
-  object moduledefs extends MillPublishModule with ScalaModule{
-    def scalaVersion = T{ "2.12.6" }
-    def ivyDeps = Agg(
-      ivy"org.scala-lang:scala-compiler:${scalaVersion()}",
-      ivy"com.lihaoyi::sourcecode:0.1.4"
-    )
-  }
-
-}
 
 object main extends MillModule {
   def moduleDeps = Seq(core, client)
@@ -102,6 +77,34 @@ object main extends MillModule {
     def generatedSources = T {
       Seq(PathRef(shared.generateCoreTestSources(T.ctx().dest)))
     }
+  }
+
+  object core extends MillModule {
+    def moduleDeps = Seq(moduledefs)
+
+    def compileIvyDeps = Agg(
+      ivy"org.scala-lang:scala-reflect:${scalaVersion()}"
+    )
+
+    def ivyDeps = Agg(
+      // Keep synchronized with ammonite in Versions.scala
+      ivy"com.lihaoyi:::ammonite:1.4.2",
+      // Necessary so we can share the JNA classes throughout the build process
+      ivy"net.java.dev.jna:jna:4.5.0",
+      ivy"net.java.dev.jna:jna-platform:4.5.0"
+    )
+
+    def generatedSources = T {
+      Seq(PathRef(shared.generateCoreSources(T.ctx().dest)))
+    }
+  }
+
+  object moduledefs extends MillPublishModule with ScalaModule{
+    def scalaVersion = T{ "2.12.6" }
+    def ivyDeps = Agg(
+      ivy"org.scala-lang:scala-compiler:${scalaVersion()}",
+      ivy"com.lihaoyi::sourcecode:0.1.4",
+    )
   }
 
   object client extends MillPublishModule{
@@ -133,7 +136,8 @@ object main extends MillModule {
 object bspserver extends MillModule {
   def moduleDeps = Seq(scalalib)
   def ivyDeps = Agg(
-    ivy"ch.epfl.scala::bsp:1.0.0+8-eb45419f"
+    ivy"ch.epfl.scala::bsp4s:1.0.0+72-c609a435",
+    ivy"ch.epfl.scala:bsp4j:1.0.0+72-c609a435",
   )
   def testArgs = T{
     scalalib.worker.testArgs() ++
@@ -160,8 +164,8 @@ object scalalib extends MillModule {
 
   def testArgs = T{
     val genIdeaArgs =
-      genTask(core.moduledefs)() ++
-      genTask(core)() ++
+      genTask(main.moduledefs)() ++
+      genTask(main.core)() ++
       genTask(main)() ++
       genTask(scalalib)() ++
       genTask(scalajslib)() ++
@@ -190,7 +194,7 @@ object scalalib extends MillModule {
 
     def ivyDeps = Agg(
       // Keep synchronized with zinc in Versions.scala
-      ivy"org.scala-sbt::zinc:1.1.7"
+      ivy"org.scala-sbt::zinc:1.2.1"
     )
     def testArgs = Seq(
       "-DMILL_SCALA_WORKER=" + runClasspath().map(_.path).mkString(",")
@@ -205,8 +209,8 @@ object scalajslib extends MillModule {
 
   def testArgs = T{
     val mapping = Map(
-      "MILL_SCALAJS_BRIDGE_0_6" -> jsbridges("0.6").compile().classes.path,
-      "MILL_SCALAJS_BRIDGE_1_0" -> jsbridges("1.0").compile().classes.path
+      "MILL_SCALAJS_WORKER_0_6" -> worker("0.6").compile().classes.path,
+      "MILL_SCALAJS_WORKER_1_0" -> worker("1.0").compile().classes.path
     )
     Seq("-Djna.nosys=true") ++
     scalalib.worker.testArgs() ++
@@ -214,8 +218,8 @@ object scalajslib extends MillModule {
     (for((k, v) <- mapping.toSeq) yield s"-D$k=$v")
   }
 
-  object jsbridges extends Cross[JsBridgeModule]("0.6", "1.0")
-  class JsBridgeModule(scalajsBinary: String) extends MillModule{
+  object worker extends Cross[WorkerModule]("0.6", "1.0")
+  class WorkerModule(scalajsBinary: String) extends MillModule{
     def moduleDeps = Seq(scalajslib)
     def ivyDeps = scalajsBinary match {
       case "0.6" =>
@@ -262,6 +266,10 @@ object contrib extends MillModule {
     }
    }
 
+  object tut extends MillModule {
+    def moduleDeps = Seq(scalalib)
+    def testArgs = Seq("-DMILL_VERSION=" + build.publishVersion()._2)
+  }
 }
 
 
@@ -272,8 +280,8 @@ object scalanativelib extends MillModule {
 
   def testArgs = T{
     val mapping = Map(
-      "MILL_SCALANATIVE_BRIDGE_0_3" ->
-        scalanativebridges("0.3").runClasspath()
+      "MILL_SCALANATIVE_WORKER_0_3" ->
+        worker("0.3").runClasspath()
           .map(_.path)
           .filter(_.toIO.exists)
           .mkString(",")
@@ -283,8 +291,8 @@ object scalanativelib extends MillModule {
     (for((k, v) <- mapping.toSeq) yield s"-D$k=$v")
   }
 
-  object scalanativebridges extends Cross[ScalaNativeBridgeModule]("0.3")
-  class ScalaNativeBridgeModule(scalaNativeBinary: String) extends MillModule {
+  object worker extends Cross[WorkerModule]("0.3")
+  class WorkerModule(scalaNativeBinary: String) extends MillModule {
     def scalaNativeVersion = T{ "0.3.8" }
     def moduleDeps = Seq(scalanativelib)
     def ivyDeps = scalaNativeBinary match {
@@ -309,7 +317,7 @@ def testRepos = T{
     "MILL_BETTERFILES_REPO" ->
       shared.downloadTestRepo("pathikrit/better-files", "ba74ae9ef784dcf37f1b22c3990037a4fcc6b5f8", T.ctx().dest/"better-files"),
     "MILL_AMMONITE_REPO" ->
-      shared.downloadTestRepo("lihaoyi/ammonite", "96ea548d5e3b72ab6ad4d9765e205bf6cc1c82ac", T.ctx().dest/"ammonite"),
+      shared.downloadTestRepo("lihaoyi/ammonite", "26b7ebcace16b4b5b4b68f9344ea6f6f48d9b53e", T.ctx().dest/"ammonite"),
     "MILL_UPICKLE_REPO" ->
       shared.downloadTestRepo("lihaoyi/upickle", "7f33085c890db7550a226c349832eabc3cd18769", T.ctx().dest/"upickle"),
     "MILL_PLAY_JSON_REPO" ->
@@ -320,7 +328,7 @@ def testRepos = T{
 }
 
 object integration extends MillModule{
-  def moduleDeps = Seq(core.moduledefs, scalalib, scalajslib, scalanativelib)
+  def moduleDeps = Seq(main.moduledefs, scalalib, scalajslib, scalanativelib)
   def testArgs = T{
     scalajslib.testArgs() ++
     scalalib.worker.testArgs() ++
@@ -374,7 +382,8 @@ def launcherScript(shellJvmArgs: Seq[String],
 }
 
 object dev extends MillModule{
-  def moduleDeps = Seq(scalalib, scalajslib, scalanativelib, contrib.scalapblib, bspserver)
+  def moduleDeps = Seq(scalalib, scalajslib, scalanativelib, contrib.scalapblib, contrib.tut, bspserver)
+
   def forkArgs =
     (
       scalalib.testArgs() ++
@@ -392,7 +401,7 @@ object dev extends MillModule{
     ).distinct
 
 
-  // Pass dev.assembly VM options via file in Window due to small max args limit
+  // Pass dev.assembly VM options via file in Windows due to small max args limit
   def windowsVmOptions(taskName: String, batch: Path, args: Seq[String])(implicit ctx: mill.util.Ctx) = {
     if (System.getProperty("java.specification.version").startsWith("1.")) {
       throw new Error(s"$taskName in Windows is only supported using Java 9 or above")
@@ -463,19 +472,20 @@ object dev extends MillModule{
 def release = T{
   val dest = T.ctx().dest
   val filename = if (scala.util.Properties.isWin) "mill.bat" else "mill"
-  val args = Seq(
-    "-DMILL_CLASSPATH=$0",
+  val commonArgs = Seq(
     "-DMILL_VERSION=" + publishVersion()._2,
     // Workaround for Zinc/JNA bug
     // https://github.com/sbt/sbt/blame/6718803ee6023ab041b045a6988fafcfae9d15b5/main/src/main/scala/sbt/Main.scala#L130
     "-Djna.nosys=true"
   )
+  val shellArgs = Seq("-DMILL_CLASSPATH=$0") ++ commonArgs
+  val cmdArgs = Seq("-DMILL_CLASSPATH=%0") ++ commonArgs
   mv(
     createAssembly(
       dev.runClasspath().map(_.path),
       prependShellScript = launcherScript(
-        args,
-        args,
+        shellArgs,
+        cmdArgs,
         Agg("$0"),
         Agg("%~dpnx0")
       )

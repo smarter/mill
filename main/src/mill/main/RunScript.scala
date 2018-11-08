@@ -3,7 +3,6 @@ package mill.main
 import java.nio.file.NoSuchFileException
 
 import ammonite.interp.Interpreter
-import ammonite.ops.{Path, read}
 import ammonite.runtime.SpecialClassLoader
 import ammonite.util.Util.CodeSource
 import ammonite.util.{Name, Res, Util}
@@ -23,15 +22,15 @@ import scala.reflect.ClassTag
   * subsystem
   */
 object RunScript{
-  def runScript(home: Path,
-                wd: Path,
-                path: Path,
-                instantiateInterpreter: => Either[(Res.Failing, Seq[(Path, Long)]), ammonite.interp.Interpreter],
+  def runScript(home: os.Path,
+                wd: os.Path,
+                path: os.Path,
+                instantiateInterpreter: => Either[(Res.Failing, Seq[(os.Path, Long)]), ammonite.interp.Interpreter],
                 scriptArgs: Seq[String],
                 stateCache: Option[Evaluator.State],
                 log: Logger,
                 env : Map[String, String])
-  : (Res[(Evaluator[Any], Seq[PathRef], Either[String, Seq[Js.Value]])], Seq[(Path, Long)]) = {
+  : (Res[(Evaluator, Seq[PathRef], Either[String, Seq[Js.Value]])], Seq[(os.Path, Long)]) = {
 
     val (evalState, interpWatched) = stateCache match{
       case Some(s) if watchedSigUnchanged(s.watched) => Res.Success(s) -> s.watched
@@ -54,7 +53,7 @@ object RunScript{
 
     val evalRes =
       for(s <- evalState)
-      yield new Evaluator[Any](home, wd / 'out, wd / 'out, s.rootModule, log,
+      yield new Evaluator(home, wd / 'out, wd / 'out, s.rootModule, log,
         s.classLoaderSig, s.workerCache, env)
 
     val evaluated = for{
@@ -66,12 +65,12 @@ object RunScript{
     (evaluated, interpWatched)
   }
 
-  def watchedSigUnchanged(sig: Seq[(Path, Long)]) = {
+  def watchedSigUnchanged(sig: Seq[(os.Path, Long)]) = {
     sig.forall{case (p, l) => Interpreter.pathSignature(p) == l}
   }
 
-  def evaluateRootModule(wd: Path,
-                         path: Path,
+  def evaluateRootModule(wd: os.Path,
+                         path: os.Path,
                          interp: ammonite.interp.Interpreter,
                          log: Logger
                         ): Res[mill.define.BaseModule] = {
@@ -80,7 +79,7 @@ object RunScript{
 
     for {
       scriptTxt <-
-        try Res.Success(Util.normalizeNewlines(read(path)))
+        try Res.Success(Util.normalizeNewlines(os.read(path)))
         catch { case _: NoSuchFileException =>
           log.info("No build file found, you should create build.sc to do something useful")
           Res.Success("")
@@ -120,7 +119,7 @@ object RunScript{
   }
 
   def resolveTasks[T, R: ClassTag](resolver: mill.main.Resolve[R],
-                                   evaluator: Evaluator[T],
+                                   evaluator: Evaluator,
                                    scriptArgs: Seq[String],
                                    multiSelect: Boolean) = {
     for {
@@ -155,7 +154,7 @@ object RunScript{
     } yield res.flatten
   }
 
-  def resolveRootModule[T](evaluator: Evaluator[T], scopedSel: Option[Segments]) = {
+  def resolveRootModule[T](evaluator: Evaluator, scopedSel: Option[Segments]) = {
     scopedSel match {
       case None => Right(evaluator.rootModule)
       case Some(scoping) =>
@@ -171,7 +170,7 @@ object RunScript{
     }
   }
 
-  def prepareResolve[T](evaluator: Evaluator[T], scopedSel: Option[Segments], sel: Segments) = {
+  def prepareResolve[T](evaluator: Evaluator, scopedSel: Option[Segments], sel: Segments) = {
     for (rootModule<- resolveRootModule(evaluator, scopedSel))
     yield {
       val crossSelectors = sel.value.map {
@@ -182,7 +181,7 @@ object RunScript{
     }
   }
 
-  def evaluateTasks[T](evaluator: Evaluator[T],
+  def evaluateTasks[T](evaluator: Evaluator,
                        scriptArgs: Seq[String],
                        multiSelect: Boolean) = {
     for (targets <- resolveTasks(mill.main.ResolveTasks, evaluator, scriptArgs, multiSelect)) yield {
@@ -198,7 +197,7 @@ object RunScript{
     }
   }
 
-  def evaluate(evaluator: Evaluator[_],
+  def evaluate(evaluator: Evaluator,
                targets: Agg[Task[Any]]): (Seq[PathRef], Either[String, Seq[(Any, Option[upickle.Js.Value])]]) = {
     val evaluated = evaluator.evaluate(targets)
     val watched = evaluated.results

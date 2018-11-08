@@ -1,7 +1,6 @@
 package mill.util
 
 import mill.util.Router.Overrides
-import ammonite.ops.pwd
 import mill.define._
 import mill.eval.Result
 import mill.eval.Result.OuterStack
@@ -14,24 +13,25 @@ import scala.collection.mutable
 object TestUtil {
   def getOutPath()(implicit fullName: sourcecode.FullName,
                    tp: TestPath) = {
-    pwd / 'target / 'workspace / (fullName.value.split('.') ++ tp.value)
+    os.pwd / 'target / 'workspace / (fullName.value.split('.') ++ tp.value)
   }
   def getOutPathStatic()(implicit fullName: sourcecode.FullName) = {
-    pwd / 'target / 'workspace / fullName.value.split('.')
+    os.pwd / 'target / 'workspace / fullName.value.split('.')
   }
 
   def getSrcPathStatic()(implicit fullName: sourcecode.FullName) = {
-    pwd / 'target / 'worksources / fullName.value.split('.')
+    os.pwd / 'target / 'worksources / fullName.value.split('.')
   }
   def getSrcPathBase() = {
-    pwd / 'target / 'worksources
+    os.pwd / 'target / 'worksources
   }
 
   class BaseModule(implicit millModuleEnclosing0: sourcecode.Enclosing,
                    millModuleLine0: sourcecode.Line,
                    millName0: sourcecode.Name,
                    overrides: Overrides)
-    extends mill.define.BaseModule(getSrcPathBase() / millModuleEnclosing0.value.split("\\.| |#")){
+    extends mill.define.BaseModule(getSrcPathBase() / millModuleEnclosing0.value.split("\\.| |#"))(
+      implicitly, implicitly, implicitly, implicitly, implicitly){
     lazy val millDiscover: Discover[this.type] = Discover[this.type]
   }
 

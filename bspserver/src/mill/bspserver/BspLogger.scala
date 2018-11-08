@@ -37,6 +37,7 @@ class BspLogger(implicit client: LanguageClient) extends Logger {
     def read() = ???
   }
 
+  def debug(s: String): Unit = {}
   def info(s: String): Unit = {}
   def error(s: String): Unit = {}
   def ticker(s: String): Unit = {
@@ -45,7 +46,7 @@ class BspLogger(implicit client: LanguageClient) extends Logger {
   override def report(d: mill.util.Diagnostic): Unit = {
     // FIXME: BSP has no way to represent diagnostics without location information.
     // This should be supported since some error messages are not specific to a particular position
-    if (!d.location.isDefined || !d.location.get.range.isDefined) {
+    if (d.location.isEmpty || d.location.get.range.isEmpty) {
       return
     }
 
@@ -75,7 +76,8 @@ class BspLogger(implicit client: LanguageClient) extends Logger {
       relatedInformation = None
     )
     val pub = PublishDiagnosticsParams(
-      uri = Uri(loc.path.toNIO.toUri.toString),
+      textDocument = TextDocumentIdentifier(Uri(loc.path.toNIO.toUri.toString)),
+      buildTarget = ???, // TODO !missing-implementation!
       originId = None,
       diagnostics = List(bspDiag)
     )

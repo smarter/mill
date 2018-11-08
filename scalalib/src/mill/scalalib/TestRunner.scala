@@ -1,5 +1,4 @@
 package mill.scalalib
-import ammonite.ops.Path
 import ammonite.util.Colors
 import mill.Agg
 import mill.modules.Jvm
@@ -37,14 +36,15 @@ object TestRunner {
           System.out,
           System.err,
           System.err,
-          System.in
+          System.in,
+          debugEnabled = false
         )
-        val home = Path(homeStr)
+        val home = os.Path(homeStr)
       }
       val result = runTests(
         frameworkInstances = TestRunner.frameworks(frameworks),
-        entireClasspath = Agg.from(classpath.map(Path(_))),
-        testClassfilePath = Agg(Path(testCp)),
+        entireClasspath = Agg.from(classpath.map(os.Path(_))),
+        testClassfilePath = Agg(os.Path(testCp)),
         args = arguments
       )(ctx)
 
@@ -52,7 +52,7 @@ object TestRunner {
       // dirtied the thread-interrupted flag and forgot to clean up. Otherwise
       // that flag causes writing the results to disk to fail
       Thread.interrupted()
-      ammonite.ops.write(Path(outputPath), upickle.default.write(result))
+      ammonite.ops.write(os.Path(outputPath), upickle.default.write(result))
     }catch{case e: Throwable =>
       println(e)
       e.printStackTrace()
@@ -64,11 +64,12 @@ object TestRunner {
   }
 
   def runTests(frameworkInstances: ClassLoader => Seq[sbt.testing.Framework],
-               entireClasspath: Agg[Path],
-               testClassfilePath: Agg[Path],
+               entireClasspath: Agg[os.Path],
+               testClassfilePath: Agg[os.Path],
                args: Seq[String])
               (implicit ctx: Ctx.Log with Ctx.Home): (String, Seq[mill.scalalib.TestRunner.Result]) = {
-    Jvm.inprocess(entireClasspath, classLoaderOverrideSbtTesting = true, isolated = true, cl => {
+    //Leave the context class loader set and open so that shutdown hooks can access it
+    Jvm.inprocess(entireClasspath, classLoaderOverrideSbtTesting = true, isolated = true, closeContextClassLoaderWhenDone = false, cl => {
       val frameworks = frameworkInstances(cl)
 
       val events = mutable.Buffer.empty[Event]

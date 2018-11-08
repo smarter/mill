@@ -117,7 +117,7 @@ In case of troubles with caching and/or incremental compilation, you can always
 restart from scratch removing the `out` directory:
 
 ```bash
-rm -rf out/
+os.remove.all -rf out/
 ```
 
 ## Project Layout
@@ -137,7 +137,7 @@ dev) and load into isolated classloaders.
 
 ### Worker modules that are resolved from Maven Central
 
-- `scalalib.worker`, `scalajslib.jsbridges[0.6]`, `scalajslib.jsbridges[1.0]`
+- `scalalib.worker`, `scalajslib.worker[0.6]`, `scalajslib.worker[1.0]`
 
 These modules are where the heavy-lifting happens, and include heavy
 dependencies like the Scala compiler, Scala.js optimizer, etc.. Rather than
@@ -150,6 +150,64 @@ optimizer without classpath conflicts.
 
 
 ## Changelog
+
+### 0.3.4
+
+- Mill is now bundled with [OS-Lib](https://github.com/lihaoyi/os-lib),
+  providing a simpler way of dealing with filesystem APIs and subprocesses
+
+### 0.3.3
+
+- Added new `debug` method to context logger, to log additional debug info into the
+  task specific output dir (`out/<task>/log`)
+
+- Added `--debug` option to enable debug output to STDERR
+
+- Fix `ScalaModule#docJar` task when Scala minor versions differ [475](https://github.com/lihaoyi/mill/issues/475)
+
+### 0.3.2
+
+- Automatically detect main class to make `ScalaModule#assembly` self-executable
+
+### 0.3.0
+
+- Bump Ammonite to 1.3.2, Fastparse to 2.0.4
+
+- Sped up `ScalaModule#docJar` task by about 10x, greatly speeding up publishing
+
+- Add a flag `JavaModule#skipIdea` you can override to disable Intellij project
+  generation [#458](https://github.com/lihaoyi/mill/pull/458)
+
+- Allow sub-domains when publishing [#441](https://github.com/lihaoyi/mill/pull/441)
+
+### 0.2.8
+
+- `mill inspect` now displays out the doc-comment documentation for a task.
+
+- Avoid shutdown hook failures in tests [#422](https://github.com/lihaoyi/mill/pull/422)
+
+- Ignore unreadable output files rather than crashing [#423](https://github.com/lihaoyi/mill/pull/423)
+
+- Don't compile hidden files [#428](https://github.com/lihaoyi/mill/pull/428)
+
+### 0.2.7
+
+- Add `visualizePlan` command
+
+- Basic build-info plugin in `mill-contrib-buildinfo`
+
+- ScalaPB integration in `mill-contrib-scalapblib`
+
+- Fixes for Twirl support, now in `mill-contrib-twirllib`
+
+- Support for building Dotty projects
+  [#397](https://github.com/lihaoyi/mill/pull/397)
+
+- Allow customization of `run`/`runBackground` working directory via
+  `forkWorkingDir`
+
+- Reduced executable size, improved incremental compilation in
+  [#414](https://github.com/lihaoyi/mill/pull/414)
 
 ### 0.2.6
 

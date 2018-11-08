@@ -1,13 +1,11 @@
 package mill
 package scalalib
 
-import ammonite.ops._
 import coursier.Repository
-import mill.define.Task
-import mill.define.TaskModule
+import mill.define.{Target, Task, TaskModule}
 import mill.eval.{PathRef, Result}
 import mill.modules.Jvm
-import mill.modules.Jvm.{createJar, subprocess}
+import mill.modules.Jvm.createJar
 import Dep.isDotty
 import Lib._
 import mill.util.Loose.Agg
@@ -24,10 +22,14 @@ trait ScalaModule extends JavaModule { outer =>
     override def scalacPluginIvyDeps = outer.scalacPluginIvyDeps
     override def scalacOptions = outer.scalacOptions
     override def javacOptions = outer.javacOptions
-    override def scalaWorker = outer.scalaWorker
+    override def zincWorker = outer.zincWorker
     override def moduleDeps: Seq[JavaModule] = Seq(outer)
   }
 
+  /**
+    * What Scala organization to use
+    * @return
+    */
   def scalaOrganization: T[String] = T {
     if (isDotty(scalaVersion()))
       "ch.epfl.lamp"
@@ -35,6 +37,9 @@ trait ScalaModule extends JavaModule { outer =>
       "org.scala-lang"
   }
 
+  /**
+    * What version of Scala to use
+    */
   def scalaVersion: T[String]
 
   override def mapDependencies = T.task{ d: coursier.Dependency =>
@@ -60,28 +65,19 @@ trait ScalaModule extends JavaModule { outer =>
     )
   }
 
-  override def finalMainClassOpt: T[Either[String, String]] = T{
-    mainClass() match{
-      case Some(m) => Right(m)
-      case None =>
-        scalaWorker.worker().discoverMainClasses(compile())match {
-          case Seq() => Left("No main class specified or found")
-          case Seq(main) => Right(main)
-          case mains =>
-            Left(
-              s"Multiple main classes found (${mains.mkString(",")}) " +
-                "please explicitly specify which one to use by overriding mainClass"
-            )
-        }
-    }
-  }
-
-
+  /**
+    * Allows you to make use of Scala compiler plugins from maven central
+    */
   def scalacPluginIvyDeps = T{ Agg.empty[Dep] }
 
+  def scalaDocPluginIvyDeps = T{ scalacPluginIvyDeps() }
+
+  /**
+    * Command-line options to pass to the Scala compiler
+    */
   def scalacOptions = T{ Seq.empty[String] }
 
-  override def repositories: Seq[Repository] = scalaWorker.repositories
+  def scalaDocOptions = T{ scalacOptions() }
 
   private val Milestone213 = raw"""2.13.(\d+)-M(\d+)""".r
 
@@ -114,18 +110,33 @@ trait ScalaModule extends JavaModule { outer =>
     )
   }
 
+  /**
+    * The local classpath of Scala compiler plugins on-disk; you can add
+    * additional jars here if you have some copiler plugin that isn't present
+    * on maven central
+    */
   def scalacPluginClasspath: T[Agg[PathRef]] = T {
     resolveDeps(scalacPluginIvyDeps)()
   }
 
+  /**
+    * The ivy coordinates of Scala's own standard library
+    */
+  def scalaDocPluginClasspath: T[Agg[PathRef]] = T {
+    resolveDeps(scalaDocPluginIvyDeps)()
+  }
+
   def scalaLibraryIvyDeps = T{ scalaRuntimeIvyDeps(scalaOrganization(), scalaVersion()) }
+
   /**
     * Classpath of the Scala Compiler & any compiler plugins
     */
   def scalaCompilerClasspath: T[Agg[PathRef]] = T{
     resolveDeps(
-      T.task{scalaCompilerIvyDeps(scalaOrganization(), scalaVersion()) ++
-        scalaRuntimeIvyDeps(scalaOrganization(), scalaVersion())}
+      T.task{
+        scalaCompilerIvyDeps(scalaOrganization(), scalaVersion()) ++
+        scalaRuntimeIvyDeps(scalaOrganization(), scalaVersion())
+      }
     )()
   }
   override def compileClasspath = T{
@@ -142,16 +153,16 @@ trait ScalaModule extends JavaModule { outer =>
   }
 
   override def compile: T[CompilationResult] = T.persistent{
-    scalaWorker.worker().compileScala(
-      scalaVersion(),
+    zincWorker.worker().compileMixed(
+      upstreamCompileOutput(),
       allSourceFiles().map(_.path),
-      scalaCompilerBridgeSources(),
       compileClasspath().map(_.path),
-      scalaCompilerClasspath().map(_.path),
-      scalacOptions(),
-      scalacPluginClasspath().map(_.path),
       javacOptions(),
-      upstreamCompileOutput()
+      scalaVersion(),
+      scalacOptions(),
+      scalaCompilerBridgeSources(),
+      scalaCompilerClasspath().map(_.path),
+      scalacPluginClasspath().map(_.path),
     )
   }
 
@@ -159,32 +170,43 @@ trait ScalaModule extends JavaModule { outer =>
     val outDir = T.ctx().dest
 
     val javadocDir = outDir / 'javadoc
-    mkdir(javadocDir)
+    os.makeDir.all(javadocDir)
 
-    val files = for{
-      ref <- allSources()
-      if exists(ref.path)
-      p <- (if (ref.path.isDir) ls.rec(ref.path) else Seq(ref.path))
-      if (p.isFile && ((p.ext == "scala") || (p.ext == "java")))
-    } yield p.toNIO.toString
+    val files = allSourceFiles().map(_.path.toString)
 
-    val pluginOptions = scalacPluginClasspath().map(pluginPathRef => s"-Xplugin:${pluginPathRef.path}")
-    val options = Seq("-d", javadocDir.toNIO.toString, "-usejavacp") ++ pluginOptions ++ scalacOptions()
+    val pluginOptions = scalaDocPluginClasspath().map(pluginPathRef => s"-Xplugin:${pluginPathRef.path}")
+    val compileCp = compileClasspath().filter(_.path.ext != "pom").map(_.path)
+    val options = Seq(
+      "-d", javadocDir.toNIO.toString,
+      "-classpath", compileCp.mkString(":")
+    ) ++
+      pluginOptions ++
+      scalaDocOptions()
 
-    if (files.nonEmpty) subprocess(
-      "scala.tools.nsc.ScalaDoc",
-      scalaCompilerClasspath().map(_.path) ++ compileClasspath().filter(_.path.ext != "pom").map(_.path),
-      mainArgs = (files ++ options).toSeq
-    )
-
-    createJar(Agg(javadocDir))(outDir)
+    if (files.isEmpty) Result.Success(createJar(Agg(javadocDir))(outDir))
+    else {
+      zincWorker.worker().docJar(
+        scalaVersion(),
+        scalaCompilerBridgeSources(),
+        scalaCompilerClasspath().map(_.path),
+        scalacPluginClasspath().map(_.path),
+        files ++ options
+      ) match{
+        case true => Result.Success(createJar(Agg(javadocDir))(outDir))
+        case false => Result.Failure("docJar generation failed")
+      }
+    }
   }
 
+  /**
+    * Opens up a Scala console with your module and all dependencies present,
+    * for you to test and operate your code interactively
+    */
   def console() = T.command{
     if (T.ctx().log.inStream == DummyInputStream){
       Result.Failure("repl needs to be run with the -i/--interactive flag")
     }else{
-      Jvm.interactiveSubprocess(
+      Jvm.runSubprocess(
         mainClass =
           if (isDotty(scalaVersion()))
             "dotty.tools.repl.Main"
@@ -192,45 +214,60 @@ trait ScalaModule extends JavaModule { outer =>
             "scala.tools.nsc.MainGenericRunner",
         classPath = runClasspath().map(_.path) ++ scalaCompilerClasspath().map(_.path),
         mainArgs = Seq("-usejavacp"),
-        workingDir = pwd
+        workingDir = os.pwd
       )
       Result.Success()
     }
   }
 
+  /**
+    * Dependencies that are necessary to run the Ammonite Scala REPL
+    */
   def ammoniteReplClasspath = T{
     localClasspath() ++
     transitiveLocalClasspath() ++
     unmanagedClasspath() ++
     resolveDeps(T.task{
       runIvyDeps() ++ scalaLibraryIvyDeps() ++ transitiveIvyDeps() ++
-      Agg(ivy"com.lihaoyi:::ammonite:1.1.2")
+      Agg(ivy"com.lihaoyi:::ammonite:${Versions.ammonite}")
     })()
   }
 
+  /**
+    * Opens up an Ammonite Scala REPL with your module and all dependencies present,
+    * for you to test and operate your code interactively
+    */
   def repl(replOptions: String*) = T.command{
     if (T.ctx().log.inStream == DummyInputStream){
       Result.Failure("repl needs to be run with the -i/--interactive flag")
     }else{
-      Jvm.interactiveSubprocess(
+      Jvm.runSubprocess(
         mainClass = "ammonite.Main",
         classPath = ammoniteReplClasspath().map(_.path),
         mainArgs = replOptions,
-        workingDir = pwd
+        workingDir = os.pwd
       )
       Result.Success()
     }
 
   }
 
-  // publish artifact with name "mill_2.12.4" instead of "mill_2.12"
+  /**
+    * Whether to publish artifacts with name "mill_2.12.4" instead of "mill_2.12"
+    */
   def crossFullScalaVersion: T[Boolean] = false
 
+  /**
+    * What Scala version string to use when publishing
+    */
   def artifactScalaVersion: T[String] = T {
     if (crossFullScalaVersion()) scalaVersion()
     else Lib.scalaBinaryVersion(scalaVersion())
   }
 
+  /**
+    * The suffix appended to the artifact IDs during publishing
+    */
   def artifactSuffix: T[String] = s"_${artifactScalaVersion()}"
 
   override def artifactId: T[String] = artifactName() + artifactSuffix()

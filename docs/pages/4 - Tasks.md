@@ -5,22 +5,22 @@ for building Scala.
 The following is a simple self-contained example using Mill to compile Java:
 
 ```scala
-import ammonite.ops._, mill._
+, mill._
 
 // sourceRoot -> allSources -> classFiles
 //                                |
 //                                v
 //           resourceRoot ---->  jar
 
-def sourceRoot = T.sources { pwd / 'src }
+def sourceRoot = T.sources { os.pwd / 'src }
 
-def resourceRoot = T.sources { pwd / 'resources }
+def resourceRoot = T.sources { os.pwd / 'resources }
 
-def allSources = T { sourceRoot().flatMap(p => ls.rec(p.path)).map(PathRef(_)) }
+def allSources = T { sourceRoot().flatMap(p => os.walk(p.path)).map(PathRef(_)) }
 
 def classFiles = T { 
-  mkdir(T.ctx().dest)
-  import ammonite.ops._
+  os.makeDir.all(T.ctx().dest)
+  
   %("javac", sources().map(_.path.toString()), "-d", T.ctx().dest)(wd = T.ctx().dest)
   PathRef(T.ctx().dest) 
 }
@@ -28,7 +28,7 @@ def classFiles = T {
 def jar = T { Jvm.createJar(Loose.Agg(classFiles().path) ++ resourceRoot().map(_.path)) }
 
 def run(mainClsName: String) = T.command {
-  %%('java, "-cp", classFiles().path, mainClsName)
+  os.proc('java, "-cp", classFiles().path, mainClsName).call()
 }
 ```
 
@@ -69,7 +69,7 @@ arbitrary result from its inputs.
 
 ## Different Kinds of Tasks
 
-There are four primary kinds of *Tasks* that you should care about:
+There are three primary kinds of *Tasks* that you should care about:
 
 - [Targets](#targets), defined using `T {...}`
 - [Sources](#sources), defined using `T.sources {...}`
@@ -78,7 +78,7 @@ There are four primary kinds of *Tasks* that you should care about:
 ### Targets
 
 ```scala
-def allSources = T { ls.rec(sourceRoot().path).map(PathRef(_)) }
+def allSources = T { os.walk(sourceRoot().path).map(PathRef(_)) }
 ```
 
 `Target`s are defined using the `def foo = T {...}` syntax, and dependencies on
@@ -91,6 +91,16 @@ store its output files at `out/classFiles/dest/`, and its returned metadata is
 automatically JSON-serialized and stored at `out/classFiles/meta.json`. The
 return-value of targets has to be JSON-serializable via
 [uPickle](https://github.com/lihaoyi/upickle).
+
+In case you want return your own
+case class (e.g. `MyCaseClass`), you can make it JSON-serializable by adding the
+following implicit def to its companion object:
+
+```scala
+object MyCaseClass {
+  implicit def rw: upickle.default.ReadWriter[MyCaseClass] = upickle.default.macroRW
+}
+```
 
 If you want to return a file or a set of files as the result of a `Target`,
 write them to disk within your `T.ctx().dest` available through the
@@ -117,7 +127,7 @@ within a `Module` body.
 ### Sources
 
 ```scala
-def sourceRootPath = pwd / 'src
+def sourceRootPath = os.pwd / 'src
 
 def sourceRoots = T.sources { sourceRootPath }
 ```
@@ -133,7 +143,7 @@ override-and-extend source lists the same way you would any other `T {...}`
 definition:
 
 ```scala
-def additionalSources = T.sources { pwd / 'additionalSources }
+def additionalSources = T.sources { os.pwd / 'additionalSources }
 def sourceRoots = T.sources { super.sourceRoots() ++ additionalSources() }
 ```
 
@@ -141,7 +151,7 @@ def sourceRoots = T.sources { super.sourceRoots() ++ additionalSources() }
 
 ```scala
 def run(mainClsName: String) = T.command {
-  %%('java, "-cp", classFiles().path, mainClsName)
+  os.proc('java, "-cp", classFiles().path, mainClsName).call()
 }
 ```
 
@@ -188,6 +198,9 @@ This is the default logger provided for every task. While your task is running,
 task are streamed to standard out/error as you would expect, but each task's
 specific output is also streamed to a log file on disk, e.g. `out/run/log` or
 `out/classFiles/log` for you to inspect later.
+
+Messages logged with `log.debug` appear by default only in the log files.
+You can use the `--debug` option when running mill to show them on the console too.
 
 ### mill.util.Ctx.Env
 
@@ -275,7 +288,7 @@ affect your build. For example, if I have a [Target](#targets) `bar` that makes
 use of the current git version:
 
 ```scala
-def bar = T { ... %%("git", "rev-parse", "HEAD").out.string ... }
+def bar = T { ... os.proc("git", "rev-parse", "HEAD").call().out.string ... }
 ```
 
 `bar` will not know that `git rev-parse` can change, and will
@@ -286,7 +299,7 @@ be out of date!
 To fix this, you can wrap your `git rev-parse HEAD` in a `T.input`:
 
 ```scala
-def foo = T.input { %%("git", "rev-parse", "HEAD").out.string }
+def foo = T.input { os.proc("git", "rev-parse", "HEAD").call().out.string }
 def bar = T { ... foo() ... }
 ```
 

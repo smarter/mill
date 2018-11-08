@@ -52,11 +52,15 @@ This would make the following targets available from the command line
 - `mill show foo2.baz`
 - `mill show foo2.qux`
 
-The built in `mill.scalalib` package uses this to define
+The built-in `mill.scalalib` package uses this to define
 `mill.scalalib.ScalaModule`, `mill.scalalib.SbtModule` and
 `mill.scalalib.TestScalaModule`, all of which contain a set of "standard"
 operations such as `compile` `jar` or `assembly` that you may expect from a
 typical Scala module.
+
+When defining your own module abstractions, in general you should use `trait`s
+and not `class`es, except in the case of
+[Cross Builds](http://www.lihaoyi.com/mill/page/cross-builds.html).
 
 ## Overriding Targets
 
@@ -152,7 +156,7 @@ mill foo.Bar/qux
 
 `ExternalModule`s are useful for someone providing a library for use with Mill
 that is shared by the entire build: for example,
-`mill.scalalib.ScalaWorkerApi/scalaWorker` provides a shared Scala compilation
+`mill.scalalib.ZincWorkerApi/zincWorker` provides a shared Scala compilation
 service & cache that is shared between all `ScalaModule`s, and
 `mill.scalalib.GenIdea/idea` lets you generate IntelliJ projects without
 needing to define your own `T.command` in your `build.sc` file

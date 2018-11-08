@@ -2,14 +2,12 @@ package mill.main
 
 import java.util.concurrent.LinkedBlockingQueue
 
-import ammonite.ops.Path
 import coursier.Cache
 import coursier.core.Repository
 import coursier.maven.MavenRepository
 import mill.T
 import mill.define.{Discover, ExternalModule}
 import mill.eval.{PathRef, Result}
-
 
 object VisualizeModule extends ExternalModule with VisualizeModule {
   def repositories = Seq(
@@ -36,7 +34,7 @@ trait VisualizeModule extends mill.define.TaskModule{
     * can communicate via in/out queues.
     */
   def worker = T.worker{
-    val in = new LinkedBlockingQueue[(Seq[_], Seq[_], Path)]()
+    val in = new LinkedBlockingQueue[(Seq[_], Seq[_], os.Path)]()
     val out = new LinkedBlockingQueue[Result[Seq[PathRef]]]()
 
     val cl = mill.util.ClassLoader.create(
@@ -48,7 +46,7 @@ trait VisualizeModule extends mill.define.TaskModule{
         val res = Result.create{
           val (targets, tasks, dest) = in.take()
           cl.loadClass("mill.main.graphviz.GraphvizTools")
-            .getMethod("apply", classOf[Seq[_]], classOf[Seq[_]], classOf[Path])
+            .getMethod("apply", classOf[Seq[_]], classOf[Seq[_]], classOf[os.Path])
             .invoke(null, targets, tasks, dest)
             .asInstanceOf[Seq[PathRef]]
         }

@@ -1,6 +1,5 @@
 package mill.scalalib.dependency.versions
 
-import ammonite.ops.pwd
 import mill.define.{BaseModule, Task}
 import mill.eval.Evaluator
 import mill.scalalib.dependency.metadata.MetadataLoaderFactory
@@ -13,7 +12,7 @@ private[dependency] object VersionsFinder {
   def findVersions(ctx: Log with Home,
                    rootModule: BaseModule): Seq[ModuleDependenciesVersions] = {
     val evaluator =
-      new Evaluator(ctx.home, pwd / 'out, pwd / 'out, rootModule, ctx.log)
+      new Evaluator(ctx.home, os.pwd / 'out, os.pwd / 'out, rootModule, ctx.log)
 
     val javaModules = rootModule.millInternal.modules.collect {
       case javaModule: JavaModule => javaModule
@@ -23,7 +22,7 @@ private[dependency] object VersionsFinder {
     resolveVersions(resolvedDependencies)
   }
 
-  private def resolveDependencies(evaluator: Evaluator[_],
+  private def resolveDependencies(evaluator: Evaluator,
                                   javaModules: Seq[JavaModule]) =
     javaModules.map { javaModule =>
       val depToDependency =
@@ -56,13 +55,13 @@ private[dependency] object VersionsFinder {
         ModuleDependenciesVersions(javaModule, versions)
     }
 
-  private def eval[T](evaluator: Evaluator[_], e: Task[T]): T =
+  private def eval[T](evaluator: Evaluator, e: Task[T]): T =
     evaluator.evaluate(Strict.Agg(e)).values match {
       case Seq()     => throw new NoSuchElementException
       case Seq(e: T) => e
     }
 
-  private def evalOrElse[T](evaluator: Evaluator[_],
+  private def evalOrElse[T](evaluator: Evaluator,
                             e: Task[T],
                             default: => T): T =
     evaluator.evaluate(Strict.Agg(e)).values match {

@@ -33,7 +33,7 @@ import ScalaBuildTarget.encodeScalaBuildTarget
 import monix.eval.Task
 
 object BspServer extends ExternalModule {
-  def bspTcpServer(ev: Evaluator[Any], host: String, port: Int) = T.command {
+  def bspTcpServer(ev: Evaluator, host: String, port: Int) = T.command {
     val socket = new Socket(host, port)
     val io = new InputOutput(socket.getInputStream, socket.getOutputStream)
     val server = new Server(ev, io)
@@ -49,7 +49,7 @@ object Server {
 }
 
 // class Server(ctx: Log with Home, evaluator: Evaluator[_], rootModule: BaseModule) {
-class Server(origEvaluator: Evaluator[_], io: InputOutput) {
+class Server(origEvaluator: Evaluator, io: InputOutput) {
   import Server._
 
   // TODO: pool size
@@ -88,11 +88,13 @@ class Server(origEvaluator: Evaluator[_], io: InputOutput) {
   def buildTarget(mod: JavaModule): BuildTarget = {
     BuildTarget(
       id = buildTargetIdentifier(mod),
-      displayName = mod.toString,
-      kind = BuildTargetKind.Library,
+      displayName = Some(mod.toString),
+      baseDirectory = Some(Uri(mod.millModuleBasePath.toString)),
+//      kind = BuildTargetKind.Library,
+      tags = ???, // TODO !missing-implementation!
+      capabilities = BuildTargetCapabilities(canCompile = true, canTest = false, canRun = false),
       languageIds = List("scala"),
       dependencies = mod.moduleDeps.filter(isRepresentable).map(buildTargetIdentifier).toList,
-      capabilities = BuildTargetCapabilities(canCompile = true, canTest = false, canRun = false),
       data =
         mod match {
           case mod: ScalaModule =>
@@ -183,13 +185,14 @@ class Server(origEvaluator: Evaluator[_], io: InputOutput) {
       .request(Build.initialize) { params =>
         logger.info(params.toString)
         InitializeBuildResult(BuildServerCapabilities(
-          compileProvider = CompileProvider(List("scala")),
-          testProvider = TestProvider(Nil),
-          runProvider = RunProvider(Nil),
-          textDocumentBuildTargetsProvider = false,
-          dependencySourcesProvider = false,
-          resourcesProvider = false,
-          buildTargetChangedProvider = false
+          compileProvider = Some(CompileProvider(List("scala"))),
+          testProvider = Some(TestProvider(Nil)),
+          runProvider = Some(RunProvider(Nil)),
+          inverseSourcesProvider = Some(false), // TODO !missing-implementation!,
+//          textDocumentBuildTargetsProvider = false,
+          dependencySourcesProvider = Some(false),
+          resourcesProvider = Some(false),
+          buildTargetChangedProvider = Some(false)
         ))
       }
       .notification(Build.initialized) { _ =>
@@ -211,7 +214,11 @@ class Server(origEvaluator: Evaluator[_], io: InputOutput) {
         println("ids: " + ids)
         println("mod: " + modules)
         modules.map(compile)
-        CompileResult(originId, None)
+        CompileResult(
+          originId = originId,
+          statusCode = StatusCode.Ok, // TODO !best-guess!
+          data = None
+        )
       }
       .request(BuildTargetEndpoint.dependencySources) { case DependencySourcesParams(targets) =>
         // sources of the actual project for IntelliJ

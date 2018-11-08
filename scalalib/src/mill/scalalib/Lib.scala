@@ -7,7 +7,6 @@ import java.lang.reflect.Modifier
 import java.util.zip.ZipInputStream
 import javax.tools.ToolProvider
 
-import ammonite.ops._
 import ammonite.util.Util
 import coursier.{Cache, Dependency, Fetch, Repository, Resolution}
 import Dep.isDotty
@@ -23,38 +22,10 @@ object CompilationResult {
   implicit val jsonFormatter: upickle.default.ReadWriter[CompilationResult] = upickle.default.macroRW
 }
 
-// analysisFile is represented by Path, so we won't break caches after file changes
-case class CompilationResult(analysisFile: Path, classes: PathRef)
+// analysisFile is represented by os.Path, so we won't break caches after file changes
+case class CompilationResult(analysisFile: os.Path, classes: PathRef)
 
 object Lib{
-  def compileJava(sources: Array[java.io.File],
-                  classpath: Array[java.io.File],
-                  javaOpts: Seq[String],
-                  upstreamCompileOutput: Seq[CompilationResult])
-                 (implicit ctx: mill.util.Ctx) = {
-    val javac = ToolProvider.getSystemJavaCompiler()
-    if (javac == null) {
-      throw new Exception(
-        "Your Java installation is not a JDK, so it can't compile Java code;" +
-        " Please install the JDK version of Java")
-    }
-
-    rm(ctx.dest / 'classes)
-    mkdir(ctx.dest / 'classes)
-    val cpArgs =
-      if(classpath.isEmpty) Seq()
-      else Seq("-cp", classpath.mkString(File.pathSeparator))
-
-    val args = Seq("-d", ctx.dest / 'classes) ++ cpArgs ++ javaOpts ++ sources
-
-    javac.run(
-      ctx.log.inStream, ctx.log.outputStream, ctx.log.errorStream,
-      args.map(_.toString):_*
-    )
-    if (ls(ctx.dest / 'classes).isEmpty) mill.eval.Result.Failure("Compilation Failed")
-    else mill.eval.Result.Success(CompilationResult(ctx.dest / 'zinc, PathRef(ctx.dest / 'classes)))
-  }
-
   private val ReleaseVersion = raw"""(\d+)\.(\d+)\.(\d+)""".r
   private val MinorSnapshotVersion = raw"""(\d+)\.(\d+)\.([1-9]\d*)-SNAPSHOT""".r
   private val DottyVersion = raw"""0\.(\d+)\.(\d+).*""".r
@@ -68,11 +39,9 @@ object Lib{
     }
   }
 
-  def grepJar(classPath: Agg[Path], name: String, version: String, sources: Boolean = false) = {
+  def grepJar(classPath: Agg[os.Path], name: String, version: String, sources: Boolean = false) = {
     val suffix = if (sources) "-sources" else ""
-    val mavenStylePath = {
-      s"$name-$version$suffix.jar"
-    }
+    val mavenStylePath = s"$name-$version$suffix.jar"
     val ivyStylePath = {
       val dir = if (sources) "srcs" else "jars"
       s"$version/$dir/$name$suffix.jar"
@@ -110,7 +79,7 @@ object Lib{
   /**
     * Resolve dependencies using Coursier.
     *
-    * We do not bother breaking this out into the separate ScalaWorker classpath,
+    * We do not bother breaking this out into the separate ZincWorker classpath,
     * because Coursier is already bundled with mill/Ammonite to support the
     * `import $ivy` syntax.
     */
@@ -141,22 +110,22 @@ object Lib{
     ivy"$scalaOrganization:scala-library:$scalaVersion".forceVersion()
   )
 
-  def listClassFiles(base: Path): Iterator[String] = {
-    if (base.isDir) ls.rec(base).toIterator.filter(_.ext == "class").map(_.relativeTo(base).toString)
+  def listClassFiles(base: os.Path): Iterator[String] = {
+    if (os.isDir(base)) os.walk(base).toIterator.filter(_.ext == "class").map(_.relativeTo(base).toString)
     else {
       val zip = new ZipInputStream(new FileInputStream(base.toIO))
       Iterator.continually(zip.getNextEntry).takeWhile(_ != null).map(_.getName).filter(_.endsWith(".class"))
     }
   }
 
-  def discoverTests(cl: ClassLoader, framework: Framework, classpath: Agg[Path]) = {
+  def discoverTests(cl: ClassLoader, framework: Framework, classpath: Agg[os.Path]) = {
 
     val fingerprints = framework.fingerprints()
 
     val testClasses = classpath.flatMap { base =>
       // Don't blow up if there are no classfiles representing
       // the tests to run Instead just don't run anything
-      if (!exists(base)) Nil
+      if (!os.exists(base)) Nil
       else listClassFiles(base).flatMap { path =>
         val cls = cl.loadClass(path.stripSuffix(".class").replace('/', '.'))
         val publicConstructorCount =
